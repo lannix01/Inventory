@@ -2,26 +2,35 @@
 
 namespace App\Modules\Inventory\Http\Controllers\Inventory;
 
-use Illuminate\Http\Request;
-use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
-use Illuminate\Validation\ValidationException;
-
+use App\Modules\Inventory\Models\InventoryLog;
 use App\Modules\Inventory\Models\Item;
 use App\Modules\Inventory\Models\ItemUnit;
 use App\Modules\Inventory\Models\StockReceipt;
 use App\Modules\Inventory\Models\StockReceiptLine;
-use App\Modules\Inventory\Models\InventoryLog;
+use App\Modules\Inventory\Support\ApiResponder;
+use App\Modules\Inventory\Support\InventoryDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Routing\Controller;
+use Illuminate\Validation\ValidationException;
 
 class StockReceiptController extends Controller
 {
-    public function index()
+    use ApiResponder;
+
+    public function index(Request $request)
     {
         $receipts = StockReceipt::query()
             ->with(['lines.item'])
             ->latest()
             ->paginate(30);
+
+        if ($request->expectsJson()) {
+            return $this->successResponse([
+                'receipts' => $receipts->items(),
+            ], 'OK', 200, [
+                'pagination' => $this->paginationMeta($receipts),
+            ]);
+        }
 
         return view('inventory::receipts.index', compact('receipts'));
     }
@@ -33,6 +42,12 @@ class StockReceiptController extends Controller
             ->with('group')
             ->orderBy('name')
             ->get();
+
+        if (request()->expectsJson()) {
+            return $this->successResponse([
+                'items' => $items,
+            ]);
+        }
 
         return view('inventory::receipts.create', compact('items'));
     }
@@ -55,7 +70,7 @@ class StockReceiptController extends Controller
 
         $user = auth('inventory')->user();
 
-        DB::transaction(function () use ($data, $user) {
+        InventoryDatabase::transaction(function () use ($data, $user) {
 
             // Build receipt payload, respecting your schema
             $receiptPayload = [
@@ -67,7 +82,7 @@ class StockReceiptController extends Controller
             ];
 
             // Optional: if your table also has received_at, set it.
-            if (Schema::hasColumn('inventory_stock_receipts', 'received_at')) {
+            if (InventoryDatabase::schema()->hasColumn('inventory_stock_receipts', 'received_at')) {
                 $receiptPayload['received_at'] = now();
             }
 
@@ -127,7 +142,7 @@ class StockReceiptController extends Controller
                 ];
 
                 // Optional: if your lines table also has received_date, set it.
-                if (Schema::hasColumn('inventory_stock_receipt_lines', 'received_date')) {
+                if (InventoryDatabase::schema()->hasColumn('inventory_stock_receipt_lines', 'received_date')) {
                     $receiptLinePayload['received_date'] = $data['received_date'];
                 }
 
@@ -178,12 +193,23 @@ class StockReceiptController extends Controller
             }
         });
 
+        if ($request->expectsJson()) {
+            return $this->successResponse([], 'Stock received successfully.', 201);
+        }
+
         return redirect()->route('inventory.receipts.index')->with('success', 'Stock received successfully.');
     }
 
     public function show(StockReceipt $receipt)
     {
         $receipt->load(['lines.item.group']);
+
+        if (request()->expectsJson()) {
+            return $this->successResponse([
+                'receipt' => $receipt,
+            ]);
+        }
+
         return view('inventory::receipts.show', compact('receipt'));
     }
 }

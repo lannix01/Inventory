@@ -4,10 +4,13 @@ namespace App\Modules\Inventory\Http\Controllers\Inventory;
 
 use App\Modules\Inventory\Http\Controllers\Controller;
 use App\Modules\Inventory\Models\InventoryLog;
+use App\Modules\Inventory\Support\ApiResponder;
 use Illuminate\Http\Request;
 
 class LogController extends Controller
 {
+    use ApiResponder;
+
     public function index(Request $request)
     {
         $q = trim((string)$request->get('q', ''));
@@ -42,6 +45,18 @@ class LogController extends Controller
             ->latest()
             ->paginate(50)
             ->withQueryString();
+
+        if ($request->expectsJson()) {
+            return $this->successResponse([
+                'logs' => $logs->items(),
+                'query' => [
+                    'q' => $q,
+                    'action' => $action,
+                ],
+            ], 'OK', 200, [
+                'pagination' => $this->paginationMeta($logs),
+            ]);
+        }
 
         return view('inventory::logs.index', compact('logs', 'q', 'action'));
     }

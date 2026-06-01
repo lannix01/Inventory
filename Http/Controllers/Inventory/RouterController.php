@@ -7,6 +7,7 @@ use App\Modules\Inventory\Models\ItemUnit;
 use App\Modules\Inventory\Services\SkybrixRouterApiService;
 use App\Modules\Inventory\Services\SkybrixTechnicianRouterAssignmentService;
 use App\Modules\Inventory\Support\InventoryAccess;
+use App\Modules\Inventory\Support\ApiResponder;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\Cache;
 
 class RouterController extends Controller
 {
+    use ApiResponder;
+
     private const SECTIONS = [
         'batches' => [
             'label' => 'Stock Batches',
@@ -121,6 +124,34 @@ class RouterController extends Controller
             $rows = collect($routerData['rows'] ?? []);
             $routerPaginator = $this->makeApiPaginator($rows, (array) ($routerData['pagination'] ?? []), $request);
             $workspace['router_count'] = $rows->count();
+        }
+
+        if ($request->expectsJson()) {
+            $pagination = $routerPaginator instanceof LengthAwarePaginator
+                ? $this->paginationMeta($routerPaginator)
+                : null;
+
+            return $this->successResponse([
+                'sections' => $sections,
+                'section' => $section,
+                'section_meta' => $sections[$section],
+                'rows' => $rows,
+                'router_data' => $routerData,
+                'workspace' => $workspace,
+                'is_technician_scoped' => $isTechnicianScoped,
+                'filters' => [
+                    'search' => $filters['search'],
+                    'page_size' => max(1, (int) ($routerData['pagination']['per_page'] ?? $filters['page_size'])),
+                    'batch_number' => $filters['batch_number'],
+                    'technician_id' => $filters['technician_id'] ?: '',
+                    'site_id' => $filters['site_id'] ?: '',
+                    'is_primary' => $filters['is_primary'],
+                    'focus_batch' => $filters['focus_batch'],
+                    'focus_site' => $filters['focus_site'],
+                ],
+            ], 'OK', 200, [
+                'pagination' => $pagination ?: [],
+            ]);
         }
 
         return view('inventory::routers.index', [

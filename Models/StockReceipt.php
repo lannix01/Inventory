@@ -2,12 +2,15 @@
 
 namespace App\Modules\Inventory\Models;
 
+use App\Modules\Inventory\Support\UsesInventoryConnection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class StockReceipt extends Model
 {
+    use UsesInventoryConnection;
+
     protected $table = 'inventory_stock_receipts';
 
     protected $fillable = [

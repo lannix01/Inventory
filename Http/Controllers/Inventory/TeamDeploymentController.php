@@ -2,15 +2,18 @@
 
 namespace App\Modules\Inventory\Http\Controllers\Inventory;
 
-use Illuminate\Http\Request;
-use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\DB;
+use App\Modules\Inventory\Models\InventoryLog;
 use App\Modules\Inventory\Models\InventoryTeam;
 use App\Modules\Inventory\Models\InventoryTeamItemAssignment;
-use App\Modules\Inventory\Models\InventoryLog;
+use App\Modules\Inventory\Support\ApiResponder;
+use App\Modules\Inventory\Support\InventoryDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Routing\Controller;
 
 class TeamDeploymentController extends Controller
 {
+    use ApiResponder;
+
     public function index()
     {
         $teams = InventoryTeam::query()
@@ -26,7 +29,7 @@ class TeamDeploymentController extends Controller
             ->map(function ($rows) {
                 return $rows->map(function ($a) {
                     // Fetch item name via DB to avoid relying on model FK
-                    $item = DB::table('inventory_items')->where('id', $a->item_id)->first();
+                    $item = InventoryDatabase::table('inventory_items')->where('id', $a->item_id)->first();
                     return [
                         'item_id' => (int)$a->item_id,
                         'item_name' => $item?->name ?? ('Item #' . $a->item_id),
@@ -34,6 +37,13 @@ class TeamDeploymentController extends Controller
                     ];
                 })->values();
             });
+
+        if (request()->expectsJson()) {
+            return $this->successResponse([
+                'teams' => $teams,
+                'team_assignments' => $teamAssignments,
+            ]);
+        }
 
         return view('inventory::team_deployments.index', compact('teams', 'teamAssignments'));
     }
@@ -50,7 +60,7 @@ class TeamDeploymentController extends Controller
             'notes' => ['nullable','string'],
         ]);
 
-        DB::transaction(function () use ($data) {
+        InventoryDatabase::transaction(function () use ($data) {
             $userId = auth()->id();
 
             $assignment = InventoryTeamItemAssignment::lockForUpdate()
@@ -67,7 +77,7 @@ class TeamDeploymentController extends Controller
             $assignment->save();
 
             // record deployment in inventory_item_deployments table (team_id + technician_id as "who deployed")
-            DB::table('inventory_item_deployments')->insert([
+            InventoryDatabase::table('inventory_item_deployments')->insert([
                 'technician_id' => $userId, // deployer (admin or tech)
                 'team_id' => (int)$data['team_id'],
                 'item_id' => (int)$data['item_id'],
@@ -98,6 +108,10 @@ class TeamDeploymentController extends Controller
                 'created_by' => $userId,
             ]);
         });
+
+        if ($request->expectsJson()) {
+            return $this->successResponse([], 'Team deployment saved (team allocation reduced + logs written).', 201);
+        }
 
         return back()->with('success', 'Team deployment saved (team allocation reduced + logs written).');
     }

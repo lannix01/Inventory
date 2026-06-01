@@ -3,7 +3,6 @@
 namespace App\Modules\Inventory\Support;
 
 use App\Modules\Inventory\Models\InventoryUser;
-use Illuminate\Support\Facades\Schema;
 
 class InventoryAccess
 {
@@ -484,8 +483,8 @@ class InventoryAccess
     private static function permissionsColumnExists(): bool
     {
         if (self::$permissionsColumnExists !== true) {
-            self::$permissionsColumnExists = Schema::hasTable('inventory_users')
-                && Schema::hasColumn('inventory_users', 'inventory_permissions');
+            self::$permissionsColumnExists = InventoryDatabase::schema()->hasTable('inventory_users')
+                && InventoryDatabase::schema()->hasColumn('inventory_users', 'inventory_permissions');
         }
 
         return self::$permissionsColumnExists;

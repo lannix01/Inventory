@@ -9,6 +9,7 @@ use App\Modules\Inventory\Models\ItemUnit;
 use App\Modules\Inventory\Models\TechnicianItemAssignment;
 use App\Modules\Inventory\Services\SkybrixRouterApiService;
 use App\Modules\Inventory\Services\SkybrixTechnicianRouterAssignmentService;
+use App\Modules\Inventory\Support\ApiResponder;
 use Illuminate\Support\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,6 +17,8 @@ use Illuminate\Support\Facades\DB;
 
 class TechnicianInventoryController extends Controller
 {
+    use ApiResponder;
+
     public function index(SkybrixTechnicianRouterAssignmentService $technicianRouters)
     {
         $user = auth('inventory')->user();
@@ -78,6 +81,18 @@ class TechnicianInventoryController extends Controller
             'api_available' => (bool) ($assignedRouterData['available'] ?? false),
         ];
 
+        if (request()->expectsJson()) {
+            return $this->successResponse([
+                'assignments' => $assignments->items(),
+                'summary' => $summary,
+                'assigned_serial_counts' => $assignedSerialCounts,
+                'recent_deployments' => $recentDeployments,
+                'router_summary' => $routerSummary,
+            ], 'OK', 200, [
+                'pagination' => $this->paginationMeta($assignments),
+            ]);
+        }
+
         return view('inventory::tech.items.index', compact(
             'assignments',
             'summary',
@@ -121,6 +136,15 @@ class TechnicianInventoryController extends Controller
             ->get();
 
         $siteLookupUrl = route('inventory.tech.sites.lookup');
+
+        if (request()->expectsJson()) {
+            return $this->successResponse([
+                'assignment' => $assignment,
+                'assigned_units' => $assignedUnits,
+                'recent_deployments' => $recentDeployments,
+                'site_lookup_url' => $siteLookupUrl,
+            ]);
+        }
 
         return view('inventory::tech.items.show', compact(
             'assignment',

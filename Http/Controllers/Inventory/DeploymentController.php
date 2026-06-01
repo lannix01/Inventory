@@ -5,19 +5,22 @@ namespace App\Modules\Inventory\Http\Controllers\Inventory;
 use App\Modules\Inventory\Http\Controllers\Controller;
 use App\Modules\Inventory\Services\SkybrixRouterApiService;
 use App\Modules\Inventory\Services\SkybrixSiteDeploymentWorkspaceService;
+use App\Modules\Inventory\Support\InventoryDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\DB;
 
 use App\Modules\Inventory\Models\InventoryLog;
 use App\Modules\Inventory\Models\Item;
 use App\Modules\Inventory\Models\ItemDeployment;
 use App\Modules\Inventory\Models\ItemUnit;
 use App\Modules\Inventory\Models\TechnicianItemAssignment;
+use App\Modules\Inventory\Support\ApiResponder;
 use Illuminate\Validation\ValidationException;
 
 class DeploymentController extends Controller
 {
+    use ApiResponder;
+
     public function index(
         Request $request,
         SkybrixRouterApiService $routerApi,
@@ -99,6 +102,29 @@ class DeploymentController extends Controller
 
         $siteWorkspace = $siteDeploymentWorkspace->build($request, $routerApi, $siteFilters);
 
+        if ($request->expectsJson()) {
+            return $this->successResponse([
+                'deployments' => $deployments->items(),
+                'section' => $section,
+                'site_workspace' => $siteWorkspace['workspace'],
+                'site_data' => $siteWorkspace['routerData'],
+                'site_filters' => [
+                    'search' => $siteFilters['search'],
+                    'page_size' => $siteFilters['page_size'],
+                    'site_id' => $siteFilters['site_id'] ?: '',
+                    'focus_site' => $siteFilters['focus_site'],
+                ],
+                'filters' => [
+                    'q' => $q,
+                    'from' => $from,
+                    'to' => $to,
+                    'technician' => $technician,
+                ],
+            ], 'OK', 200, [
+                'pagination' => $this->paginationMeta($deployments),
+            ]);
+        }
+
         return view('inventory::deployments.index', [
             'deployments' => $deployments,
             'section' => $section,
@@ -162,7 +188,7 @@ class DeploymentController extends Controller
             ? $user->id
             : ((int)($data['technician_id'] ?? $user->id));
 
-        DB::transaction(function () use ($data, $technicianId, $user, $role) {
+        InventoryDatabase::transaction(function () use ($data, $technicianId, $user, $role) {
             // Lock item row
             $item = Item::lockForUpdate()->findOrFail($data['item_id']);
 
@@ -288,6 +314,10 @@ class DeploymentController extends Controller
                 'created_by' => $user->id,
             ]);
         });
+
+        if ($request->expectsJson()) {
+            return $this->successResponse([], 'Deployment recorded (log created, unit/store records updated).', 201);
+        }
 
         return back()->with('success', 'Deployment recorded (log created, unit/store records updated).');
     }

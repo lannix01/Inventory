@@ -5,7 +5,6 @@ namespace App\Modules\Inventory\Support;
 use App\Modules\Inventory\Models\InventoryActivityLog;
 use App\Modules\Inventory\Models\InventoryUser;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class InventoryActivity
@@ -19,7 +18,7 @@ class InventoryActivity
             return;
         }
 
-        if (!Schema::hasTable('inventory_activity_logs')) {
+        if (!InventoryDatabase::schema()->hasTable('inventory_activity_logs')) {
             return;
         }
 

@@ -2,18 +2,21 @@
 
 namespace App\Modules\Inventory\Http\Controllers\Inventory;
 
+use App\Modules\Inventory\Support\ApiResponder;
+use App\Modules\Inventory\Support\InventoryDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
 class ItemController extends Controller
 {
+    use ApiResponder;
+
     public function index(Request $request)
     {
         $q = trim((string) $request->get('q', ''));
 
-        $items = DB::table('inventory_items as i')
+        $items = InventoryDatabase::table('inventory_items as i')
             ->leftJoin('inventory_item_groups as g', 'g.id', '=', 'i.item_group_id')
             ->select([
                 'i.*',
@@ -31,19 +34,34 @@ class ItemController extends Controller
             ->paginate(20)
             ->withQueryString();
 
+        if ($request->expectsJson()) {
+            return $this->successResponse([
+                'items' => $items->items(),
+                'query' => ['q' => $q],
+            ], 'OK', 200, [
+                'pagination' => $this->paginationMeta($items),
+            ]);
+        }
+
         return view('inventory::items.index', compact('items', 'q'));
     }
 
     public function create()
     {
-        $groupsQuery = DB::table('inventory_item_groups')->orderBy('name');
+        $groupsQuery = InventoryDatabase::table('inventory_item_groups')->orderBy('name');
 
         // Only filter by is_active if the column exists (your table may not have it)
-        if (Schema::hasColumn('inventory_item_groups', 'is_active')) {
+        if (InventoryDatabase::schema()->hasColumn('inventory_item_groups', 'is_active')) {
             $groupsQuery->where('is_active', 1);
         }
 
         $groups = $groupsQuery->get();
+
+        if (request()->expectsJson()) {
+            return $this->successResponse([
+                'groups' => $groups,
+            ]);
+        }
 
         return view('inventory::items.create', compact('groups'));
     }
@@ -62,7 +80,7 @@ class ItemController extends Controller
             'is_active' => ['nullable', 'boolean'],
         ]);
 
-        DB::table('inventory_items')->insert([
+        InventoryDatabase::table('inventory_items')->insert([
             'item_group_id' => (int) $data['item_group_id'],
             'name' => $data['name'],
             'sku' => $data['sku'] ?? null,
@@ -76,29 +94,40 @@ class ItemController extends Controller
             'updated_at' => now(),
         ]);
 
+        if ($request->expectsJson()) {
+            return $this->successResponse([], 'Item created.', 201);
+        }
+
         return redirect()->route('inventory.items.index')->with('success', 'Item created.');
     }
 
     public function edit($id)
     {
-        $item = DB::table('inventory_items')->where('id', $id)->first();
+        $item = InventoryDatabase::table('inventory_items')->where('id', $id)->first();
         abort_if(!$item, 404);
 
-        $groupsQuery = DB::table('inventory_item_groups')->orderBy('name');
+        $groupsQuery = InventoryDatabase::table('inventory_item_groups')->orderBy('name');
 
         // Only filter by is_active if the column exists
-        if (Schema::hasColumn('inventory_item_groups', 'is_active')) {
+        if (InventoryDatabase::schema()->hasColumn('inventory_item_groups', 'is_active')) {
             $groupsQuery->where('is_active', 1);
         }
 
         $groups = $groupsQuery->get();
+
+        if (request()->expectsJson()) {
+            return $this->successResponse([
+                'item' => $item,
+                'groups' => $groups,
+            ]);
+        }
 
         return view('inventory::items.edit', compact('item', 'groups'));
     }
 
     public function update(Request $request, $id)
     {
-        $item = DB::table('inventory_items')->where('id', $id)->first();
+        $item = InventoryDatabase::table('inventory_items')->where('id', $id)->first();
         abort_if(!$item, 404);
 
         $data = $request->validate([
@@ -112,7 +141,7 @@ class ItemController extends Controller
             'is_active' => ['nullable', 'boolean'],
         ]);
 
-        DB::table('inventory_items')->where('id', $id)->update([
+        InventoryDatabase::table('inventory_items')->where('id', $id)->update([
             'item_group_id' => (int) $data['item_group_id'],
             'name' => $data['name'],
             'sku' => $data['sku'] ?? null,
@@ -124,12 +153,21 @@ class ItemController extends Controller
             'updated_at' => now(),
         ]);
 
+        if ($request->expectsJson()) {
+            return $this->successResponse([], 'Item updated.');
+        }
+
         return back()->with('success', 'Item updated.');
     }
 
     public function destroy($id)
     {
-        DB::table('inventory_items')->where('id', $id)->delete();
+        InventoryDatabase::table('inventory_items')->where('id', $id)->delete();
+
+        if (request()->expectsJson()) {
+            return $this->successResponse([], 'Item deleted.');
+        }
+
         return back()->with('success', 'Item deleted.');
     }
 
@@ -140,7 +178,7 @@ class ItemController extends Controller
      */
     public function lowStock()
     {
-        $items = DB::table('inventory_items as i')
+        $items = InventoryDatabase::table('inventory_items as i')
             ->leftJoin('inventory_item_groups as g', 'g.id', '=', 'i.item_group_id')
             ->select([
                 'i.*',
@@ -151,6 +189,14 @@ class ItemController extends Controller
             ->whereColumn('i.qty_on_hand', '<=', 'i.reorder_level')
             ->orderBy('i.name')
             ->paginate(50);
+
+        if (request()->expectsJson()) {
+            return $this->successResponse([
+                'items' => $items->items(),
+            ], 'OK', 200, [
+                'pagination' => $this->paginationMeta($items),
+            ]);
+        }
 
         return view('inventory::alerts.low_stock', compact('items'));
     }

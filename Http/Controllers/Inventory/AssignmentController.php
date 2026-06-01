@@ -8,11 +8,14 @@ use App\Modules\Inventory\Models\InventoryUser;
 use App\Modules\Inventory\Models\Item;
 use App\Modules\Inventory\Models\ItemUnit;
 use App\Modules\Inventory\Models\TechnicianItemAssignment;
+use App\Modules\Inventory\Support\ApiResponder;
+use App\Modules\Inventory\Support\InventoryDatabase;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class AssignmentController extends Controller
 {
+    use ApiResponder;
+
     public function index()
     {
         $technicians = InventoryUser::query()
@@ -49,6 +52,18 @@ class AssignmentController extends Controller
             ->paginate(30)
             ->withQueryString();
 
+        if (request()->expectsJson()) {
+            return $this->successResponse([
+                'technicians' => $technicians,
+                'items' => $items,
+                'serial_items' => $serialItems,
+                'available_units' => $availableUnits,
+                'assignments' => $assignments->items(),
+            ], 'OK', 200, [
+                'pagination' => $this->paginationMeta($assignments),
+            ]);
+        }
+
         return view('inventory::assignments.index', compact('technicians', 'items', 'serialItems', 'availableUnits', 'assignments'));
     }
 
@@ -72,7 +87,7 @@ class AssignmentController extends Controller
             'notes' => ['nullable', 'string'],
         ]);
 
-        DB::transaction(function () use ($data, $adminId) {
+        InventoryDatabase::transaction(function () use ($data, $adminId) {
             $item = Item::lockForUpdate()->findOrFail($data['item_id']);
 
             $assignment = TechnicianItemAssignment::lockForUpdate()->firstOrCreate(
@@ -175,6 +190,10 @@ class AssignmentController extends Controller
             ]);
         });
 
+        if ($request->expectsJson()) {
+            return $this->successResponse([], 'Assignment saved (store updated + log created).', 201);
+        }
+
         return back()->with('success', 'Assignment saved (store updated + log created).');
     }
 
@@ -190,12 +209,21 @@ class AssignmentController extends Controller
             'assigned_at' => now(),
         ]);
 
+        if ($request->expectsJson()) {
+            return $this->successResponse([], 'Assignment updated.');
+        }
+
         return back()->with('success', 'Assignment updated.');
     }
 
     public function destroy(TechnicianItemAssignment $assignment)
     {
         $assignment->delete();
+
+        if (request()->expectsJson()) {
+            return $this->successResponse([], 'Assignment removed.');
+        }
+
         return back()->with('success', 'Assignment removed.');
     }
 }

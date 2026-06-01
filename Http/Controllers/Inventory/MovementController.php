@@ -10,12 +10,15 @@ use App\Modules\Inventory\Models\InventoryUser;
 use App\Modules\Inventory\Models\Item;
 use App\Modules\Inventory\Models\ItemUnit;
 use App\Modules\Inventory\Models\TechnicianItemAssignment;
+use App\Modules\Inventory\Support\ApiResponder;
+use App\Modules\Inventory\Support\InventoryDatabase;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class MovementController extends Controller
 {
+    use ApiResponder;
+
     public function index()
     {
         $movements = InventoryMovement::query()
@@ -23,6 +26,14 @@ class MovementController extends Controller
             ->latest()
             ->paginate(30)
             ->withQueryString();
+
+        if (request()->expectsJson()) {
+            return $this->successResponse([
+                'movements' => $movements->items(),
+            ], 'OK', 200, [
+                'pagination' => $this->paginationMeta($movements),
+            ]);
+        }
 
         return view('inventory::movements.index', compact('movements'));
     }
@@ -64,6 +75,14 @@ class MovementController extends Controller
                 });
             });
 
+        if (request()->expectsJson()) {
+            return $this->successResponse([
+                'technicians' => $technicians,
+                'assignments' => $assignmentsByTech,
+                'assigned_units' => $assignedUnitsByTech,
+            ]);
+        }
+
         return view('inventory::movements.transfer', compact('technicians', 'assignmentsByTech', 'assignedUnitsByTech'));
     }
 
@@ -104,6 +123,14 @@ class MovementController extends Controller
                 });
             });
 
+        if (request()->expectsJson()) {
+            return $this->successResponse([
+                'technicians' => $technicians,
+                'assignments' => $assignmentsByTech,
+                'assigned_units' => $assignedUnitsByTech,
+            ]);
+        }
+
         return view('inventory::movements.return_to_store', compact('technicians', 'assignmentsByTech', 'assignedUnitsByTech'));
     }
 
@@ -138,7 +165,7 @@ class MovementController extends Controller
 
         $reference = $prefix . '-' . now()->format('Ymd') . '-' . Str::upper(Str::random(6));
 
-        DB::transaction(function () use ($data, $createdBy, $reference) {
+        InventoryDatabase::transaction(function () use ($data, $createdBy, $reference) {
             $type = $data['type'];
 
             // Basic party validation
@@ -400,6 +427,12 @@ class MovementController extends Controller
 
             abort(422, 'Unsupported bulk movement type.');
         });
+
+        if ($request->expectsJson()) {
+            return $this->successResponse([
+                'reference' => $reference,
+            ], 'Movement saved (assignments updated + store updated + logs written).', 201);
+        }
 
         return back()->with('success', 'Movement saved (assignments updated + store updated + logs written).');
     }

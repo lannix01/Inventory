@@ -5,9 +5,12 @@ namespace App\Modules\Inventory\Http\Controllers\Inventory;
 use App\Modules\Inventory\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Modules\Inventory\Models\Item;
+use App\Modules\Inventory\Support\ApiResponder;
 
 class AlertsController extends Controller
 {
+    use ApiResponder;
+
     public function lowStock(Request $request)
     {
         $q = trim((string) $request->get('q', ''));
@@ -33,6 +36,18 @@ class AlertsController extends Controller
             ->orderBy('qty_on_hand', 'asc')
             ->paginate(20)
             ->withQueryString();
+
+        if ($request->expectsJson()) {
+            return $this->successResponse([
+                'items' => $items->items(),
+                'query' => [
+                    'q' => $q,
+                    'group' => $group,
+                ],
+            ], 'OK', 200, [
+                'pagination' => $this->paginationMeta($items),
+            ]);
+        }
 
         return view('inventory::alerts.low_stock', [
             'items' => $items,

@@ -2,23 +2,36 @@
 
 namespace App\Modules\Inventory\Http\Controllers\Inventory;
 
+use App\Modules\Inventory\Support\ApiResponder;
+use App\Modules\Inventory\Support\InventoryDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\DB;
 
 class InventoryDashboardController extends Controller
 {
-    public function index()
+    use ApiResponder;
+
+    public function index(Request $request)
     {
-        $lowStock = DB::table('inventory_items')
+        $lowStock = InventoryDatabase::table('inventory_items')
             ->where('is_active', 1)
             ->whereColumn('qty_on_hand', '<=', 'reorder_level')
             ->count();
 
-        $items = DB::table('inventory_items')->count();
-        $teams = DB::table('inventory_teams')->count();
-        $logs7d = DB::table('inventory_logs')
+        $items = InventoryDatabase::table('inventory_items')->count();
+        $teams = InventoryDatabase::table('inventory_teams')->count();
+        $logs7d = InventoryDatabase::table('inventory_logs')
             ->where('created_at', '>=', now()->subDays(7))
             ->count();
+
+        if ($request->expectsJson()) {
+            return $this->successResponse([
+                'low_stock' => (int) $lowStock,
+                'items' => (int) $items,
+                'teams' => (int) $teams,
+                'logs_7d' => (int) $logs7d,
+            ]);
+        }
 
         return view('inventory::dashboard.index', compact('lowStock', 'items', 'teams', 'logs7d'));
     }

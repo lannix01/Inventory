@@ -4,10 +4,10 @@ namespace App\Modules\Inventory\Http\Controllers\Auth;
 
 use App\Modules\Inventory\Support\InventoryAccess;
 use App\Modules\Inventory\Support\InventoryActivity;
+use App\Modules\Inventory\Support\InventoryDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class InventoryAuthController extends Controller
@@ -40,13 +40,13 @@ class InventoryAuthController extends Controller
 
         $user = Auth::guard('inventory')->user();
         if ($user) {
-            if (Schema::hasColumn('inventory_users', 'last_login_at')) {
+            if (InventoryDatabase::schema()->hasColumn('inventory_users', 'last_login_at')) {
                 $user->last_login_at = now();
             }
-            if (Schema::hasColumn('inventory_users', 'last_login_ip')) {
+            if (InventoryDatabase::schema()->hasColumn('inventory_users', 'last_login_ip')) {
                 $user->last_login_ip = $request->ip();
             }
-            if (Schema::hasColumn('inventory_users', 'last_login_user_agent')) {
+            if (InventoryDatabase::schema()->hasColumn('inventory_users', 'last_login_user_agent')) {
                 $user->last_login_user_agent = Str::limit((string) $request->userAgent(), 255, '');
             }
             $user->save();

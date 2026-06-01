@@ -8,14 +8,17 @@ use App\Modules\Inventory\Models\InventoryActivityLog;
 use App\Modules\Inventory\Models\InventoryUser;
 use App\Modules\Inventory\Support\InventoryAccess;
 use App\Modules\Inventory\Support\InventoryActivity;
+use App\Modules\Inventory\Support\ApiResponder;
+use App\Modules\Inventory\Support\InventoryDatabase;
 use App\Services\Sms\AdvantaSmsService;
 use App\Services\Sms\AmazonsSmsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Schema;
 
 class SettingsController extends Controller
 {
+    use ApiResponder;
+
     public function index(Request $request)
     {
         $currentUser = auth('inventory')->user();
@@ -45,17 +48,35 @@ class SettingsController extends Controller
             $selectedEffectivePermissions = InventoryAccess::permissionsForUser($selectedUser);
         }
 
-        $supportsPhoneNo = Schema::hasColumn('inventory_users', 'phone_no');
-        $supportsLoginTracking = Schema::hasColumn('inventory_users', 'last_login_at');
-        $supportsLoginSmsTracking = Schema::hasColumn('inventory_users', 'login_sms_sent_at');
+        $supportsPhoneNo = InventoryDatabase::schema()->hasColumn('inventory_users', 'phone_no');
+        $supportsLoginTracking = InventoryDatabase::schema()->hasColumn('inventory_users', 'last_login_at');
+        $supportsLoginSmsTracking = InventoryDatabase::schema()->hasColumn('inventory_users', 'login_sms_sent_at');
 
         $activityLogs = collect();
-        if ($selectedUser && Schema::hasTable('inventory_activity_logs')) {
+        if ($selectedUser && InventoryDatabase::schema()->hasTable('inventory_activity_logs')) {
             $activityLogs = InventoryActivityLog::query()
                 ->where('inventory_user_id', $selectedUser->id)
                 ->latest()
                 ->limit(60)
                 ->get();
+        }
+
+        if ($request->expectsJson()) {
+            return $this->successResponse([
+                'users' => $users,
+                'departments' => $departments,
+                'selected_user' => $selectedUser,
+                'role_options' => InventoryAccess::roleOptions(),
+                'permission_catalog' => InventoryAccess::permissionCatalog(),
+                'selected_explicit_permissions' => $selectedExplicitPermissions,
+                'selected_effective_permissions' => $selectedEffectivePermissions,
+                'permissions_supported' => $permissionsSupported,
+                'supports_phone_no' => $supportsPhoneNo,
+                'supports_login_tracking' => $supportsLoginTracking,
+                'supports_login_sms_tracking' => $supportsLoginSmsTracking,
+                'activity_logs' => $activityLogs,
+                'default_password' => $this->defaultPassword(),
+            ]);
         }
 
         return view('inventory::settings.index', [
@@ -81,7 +102,7 @@ class SettingsController extends Controller
         abort_unless(InventoryAccess::isAdmin($currentUser), 403);
 
         $roleValues = array_keys(InventoryAccess::roleOptions());
-        $supportsPhoneNo = Schema::hasColumn('inventory_users', 'phone_no');
+        $supportsPhoneNo = InventoryDatabase::schema()->hasColumn('inventory_users', 'phone_no');
 
         $data = $request->validateWithBag('updateUser', [
             'name' => ['required', 'string', 'max:120'],
@@ -102,10 +123,18 @@ class SettingsController extends Controller
         $targetEnabled = (bool) ($data['inventory_enabled'] ?? false);
 
         if ((int) $user->id === (int) $currentUser->id && $targetRole !== 'admin') {
+            if ($request->expectsJson()) {
+                return $this->errorResponse('You cannot remove your own admin role.', 422);
+            }
+
             return back()->with('warning', 'You cannot remove your own admin role.');
         }
 
         if ((int) $user->id === (int) $currentUser->id && !$targetEnabled) {
+            if ($request->expectsJson()) {
+                return $this->errorResponse('You cannot disable your own account.', 422);
+            }
+
             return back()->with('warning', 'You cannot disable your own account.');
         }
 
@@ -154,6 +183,12 @@ class SettingsController extends Controller
             ? 'User access updated.'
             : 'User updated. Custom permissions are unavailable until the inventory permissions migration is applied.';
 
+        if ($request->expectsJson()) {
+            return $this->successResponse([
+                'user' => $user->fresh(),
+            ], $message);
+        }
+
         return redirect()
             ->route('inventory.settings.index', ['user' => $user->id])
             ->with('success', $message);
@@ -165,7 +200,7 @@ class SettingsController extends Controller
         abort_unless(InventoryAccess::isAdmin($currentUser), 403);
 
         $roleValues = array_keys(InventoryAccess::roleOptions());
-        $supportsPhoneNo = Schema::hasColumn('inventory_users', 'phone_no');
+        $supportsPhoneNo = InventoryDatabase::schema()->hasColumn('inventory_users', 'phone_no');
 
         $data = $request->validateWithBag('createUser', [
             'create.name' => ['required', 'string', 'max:120'],
@@ -209,6 +244,10 @@ class SettingsController extends Controller
         } catch (\Throwable $e) {
             report($e);
 
+            if ($request->expectsJson()) {
+                return $this->errorResponse('Unable to create user. Please confirm migrations and try again.', 500);
+            }
+
             return back()->withInput()->with('error', 'Unable to create user. Please confirm migrations and try again.');
         }
 
@@ -229,6 +268,15 @@ class SettingsController extends Controller
                 ]);
             }
 
+            if ($request->expectsJson()) {
+                return $this->successResponse([
+                    'user' => $user,
+                    'sms_sent' => $smsSent,
+                    'sms_message' => $smsMessage,
+                    'temp_password' => $plainPassword,
+                ], $smsSent ? 'User created and login SMS sent.' : 'User created, but login SMS failed.');
+            }
+
             return redirect()
                 ->route('inventory.settings.index', ['user' => $user->id])
                 ->with($smsSent ? 'success' : 'error', $smsSent
@@ -237,6 +285,13 @@ class SettingsController extends Controller
                 )
                 ->with('inventory_temp_password', $plainPassword)
                 ->with('inventory_temp_user', $user->id);
+        }
+
+        if ($request->expectsJson()) {
+            return $this->successResponse([
+                'user' => $user,
+                'temp_password' => $plainPassword,
+            ], 'User created.', 201);
         }
 
         return redirect()
@@ -254,7 +309,7 @@ class SettingsController extends Controller
         $defaultPassword = $this->defaultPassword();
         $oldPasswordHash = (string) $user->password;
         $oldForceChange = (bool) $user->inventory_force_password_change;
-        $hasLoginSmsTracking = Schema::hasColumn('inventory_users', 'login_sms_sent_at');
+        $hasLoginSmsTracking = InventoryDatabase::schema()->hasColumn('inventory_users', 'login_sms_sent_at');
         $oldSmsSentAt = $hasLoginSmsTracking ? $user->login_sms_sent_at : null;
 
         $user->password = Hash::make($defaultPassword);
@@ -274,6 +329,10 @@ class SettingsController extends Controller
             }
             $user->save();
 
+            if ($request->expectsJson()) {
+                return $this->errorResponse('Failed to send login SMS: ' . ($smsMessage !== '' ? $smsMessage : 'unknown error.'), 422);
+            }
+
             return redirect()
                 ->route('inventory.settings.index', ['user' => $user->id])
                 ->with('error', 'Failed to send login SMS: ' . ($smsMessage !== '' ? $smsMessage : 'unknown error.'));
@@ -282,6 +341,15 @@ class SettingsController extends Controller
         InventoryActivity::log($currentUser, 'login_sms_sent', $request, [
             'target_user_id' => $user->id,
         ]);
+
+        if ($request->expectsJson()) {
+            return $this->successResponse([
+                'user' => $user,
+                'sms_sent' => true,
+                'sms_message' => $smsMessage,
+                'temp_password' => $defaultPassword,
+            ], 'Login SMS sent.');
+        }
 
         return redirect()
             ->route('inventory.settings.index', ['user' => $user->id])
@@ -305,6 +373,13 @@ class SettingsController extends Controller
             'target_user_id' => $user->id,
         ]);
 
+        if ($request->expectsJson()) {
+            return $this->successResponse([
+                'user' => $user,
+                'temp_password' => $defaultPassword,
+            ], 'Login reset to default password.');
+        }
+
         return redirect()
             ->route('inventory.settings.index', ['user' => $user->id])
             ->with('success', 'Login reset to default password for ' . $user->name . '.')
@@ -322,7 +397,7 @@ class SettingsController extends Controller
      */
     private function sendLoginSmsWithPassword(InventoryUser $user, string $plainPassword): array
     {
-        if (!Schema::hasColumn('inventory_users', 'phone_no')) {
+        if (!InventoryDatabase::schema()->hasColumn('inventory_users', 'phone_no')) {
             return [
                 'sent' => false,
                 'message' => 'phone field is missing (run migrations).',
@@ -389,7 +464,7 @@ class SettingsController extends Controller
             ];
         }
 
-        if (Schema::hasColumn('inventory_users', 'login_sms_sent_at')) {
+        if (InventoryDatabase::schema()->hasColumn('inventory_users', 'login_sms_sent_at')) {
             $user->login_sms_sent_at = now();
             $user->save();
         }

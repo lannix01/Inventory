@@ -2,16 +2,19 @@
 
 namespace App\Modules\Inventory\Http\Controllers\Inventory;
 
+use App\Modules\Inventory\Models\InventoryLog;
+use App\Modules\Inventory\Models\InventoryTeam;
+use App\Modules\Inventory\Models\InventoryTeamItemAssignment;
+use App\Modules\Inventory\Support\ApiResponder;
+use App\Modules\Inventory\Support\InventoryDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\DB;
-use App\Modules\Inventory\Models\InventoryTeam;
 use App\Modules\Inventory\Models\InventoryItem; // if you don't have this model, swap to DB::table('inventory_items')
-use App\Modules\Inventory\Models\InventoryTeamItemAssignment;
-use App\Modules\Inventory\Models\InventoryLog;
 
 class TeamAssignmentController extends Controller
 {
+    use ApiResponder;
+
     public function index()
     {
         $teams = InventoryTeam::query()
@@ -22,12 +25,22 @@ class TeamAssignmentController extends Controller
         // If you don't have InventoryItem model, comment this and use DB query in view
         $items = class_exists(\App\Modules\Inventory\Models\InventoryItem::class)
             ? \App\Modules\Inventory\Models\InventoryItem::query()->where('is_active', true)->orderBy('name')->get()
-            : collect(DB::table('inventory_items')->where('is_active', 1)->orderBy('name')->get());
+            : collect(InventoryDatabase::table('inventory_items')->where('is_active', 1)->orderBy('name')->get());
 
         $assignments = InventoryTeamItemAssignment::query()
             ->with(['team', 'assigner'])
             ->latest()
             ->paginate(30);
+
+        if (request()->expectsJson()) {
+            return $this->successResponse([
+                'teams' => $teams,
+                'items' => $items,
+                'assignments' => $assignments->items(),
+            ], 'OK', 200, [
+                'pagination' => $this->paginationMeta($assignments),
+            ]);
+        }
 
         return view('inventory::team_assignments.index', compact('teams', 'items', 'assignments'));
     }
@@ -42,18 +55,18 @@ class TeamAssignmentController extends Controller
             'notes' => ['nullable','string'],
         ]);
 
-        DB::transaction(function () use ($data) {
+        InventoryDatabase::transaction(function () use ($data) {
             $adminId = auth()->id();
 
             // store qty reduces (inventory_items exists; we don't assume FK)
-            $itemRow = DB::table('inventory_items')->lockForUpdate()->where('id', $data['item_id'])->first();
+            $itemRow = InventoryDatabase::table('inventory_items')->lockForUpdate()->where('id', $data['item_id'])->first();
             if (!$itemRow) abort(422, 'Invalid item_id');
 
             if ((int)$data['qty_allocated'] > (int)$itemRow->qty_on_hand) {
                 abort(422, 'Allocated qty cannot exceed store qty_on_hand.');
             }
 
-            DB::table('inventory_items')->where('id', $data['item_id'])->decrement('qty_on_hand', (int)$data['qty_allocated']);
+            InventoryDatabase::table('inventory_items')->where('id', $data['item_id'])->decrement('qty_on_hand', (int)$data['qty_allocated']);
 
             $assignment = InventoryTeamItemAssignment::lockForUpdate()->firstOrCreate(
                 ['team_id' => $data['team_id'], 'item_id' => (int)$data['item_id']],
@@ -87,6 +100,10 @@ class TeamAssignmentController extends Controller
                 'created_by' => $adminId,
             ]);
         });
+
+        if ($request->expectsJson()) {
+            return $this->successResponse([], 'Team assignment saved (store reduced + log written).', 201);
+        }
 
         return back()->with('success', 'Team assignment saved (store reduced + log written).');
     }

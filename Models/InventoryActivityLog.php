@@ -2,11 +2,14 @@
 
 namespace App\Modules\Inventory\Models;
 
+use App\Modules\Inventory\Support\UsesInventoryConnection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class InventoryActivityLog extends Model
 {
+    use UsesInventoryConnection;
+
     protected $table = 'inventory_activity_logs';
 
     protected $fillable = [
